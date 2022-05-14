@@ -16,6 +16,79 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "v2_iso.h"
+
+bool afk_jump = false;
+bool afk_walk = false;
+
+uint16_t afk_timer = false;
+uint16_t afk_interval = 0; // (1000ms == 1s)
+
+uint16_t layer_timer = false;
+uint16_t layer_interval = 5000; // 5s
+
+enum custom_keycodes {
+  #ifdef VIAL_ENABLE
+  KC_AFKJUMP = USER00,
+  #else
+  KC_AFKJUMP = SAFE_RANGE,
+  #endif
+  KC_AFKWALK,
+};
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+  switch (keycode) {
+    case KC_AFKJUMP: // Toggles on pressing the AFK JUMP key
+      if (record->event.pressed && !afk_walk) { 
+        afk_jump ^= 1; 
+        afk_timer = timer_read();
+      }
+      return false;
+    case KC_AFKWALK: // Toggles on pressing the AFK WALK key
+      if (record->event.pressed && !afk_jump) { 
+        afk_walk ^= 1;
+        afk_timer = timer_read();
+      }
+      return false;
+  }
+  return true;
+}
+
+uint16_t handle_afk_walk(void) {
+	uint16_t walk_delay = 30 * (rand() % 100);
+	int direction = rand() % 4;
+	switch(direction) {
+	  case 0: 
+		tap_code_delay(KC_W, walk_delay);
+	  case 1: 
+		tap_code_delay(KC_A, walk_delay);
+	  case 2: 
+		tap_code_delay(KC_S, walk_delay);
+	  case 3: 
+		tap_code_delay(KC_D, walk_delay);
+	}
+	
+	return timer_read();
+}
+
+void matrix_scan_user(void) {
+  if (timer_elapsed(afk_timer) >= afk_interval) {
+     if (afk_jump) {
+       SEND_STRING(SS_TAP(X_SPACE));
+       afk_timer = timer_read();
+	   afk_interval = 100 * (rand() % 100); // Any random time between 1 and 10 seconds.
+     }
+	 else if (afk_walk) {
+       afk_timer = handle_afk_walk();
+       afk_interval = 1000 + (90 * (rand() % 100)); // Any random time between 1 and 9 seconds, Plus 1 second.
+     }
+  }
+}
+
+layer_state_t layer_state_set_kb(layer_state_t state) {
+    layer_timer = timer_read();
+	return state;
+}
+
 #ifdef CU80_RGB
 
 void matrix_init_kb(void) {
@@ -25,12 +98,41 @@ void matrix_init_kb(void) {
 
 /* Set LED 62 (Caps Lock) and LED 14 (Scroll Lock) when key active */
 void rgb_matrix_indicators_kb(void) {
+	// CAPS LOCK and SCROLL LOCK indicators
     if (host_keyboard_led_state().caps_lock) {
         rgb_matrix_set_color(62, 255, 255, 255);
     }
     if (host_keyboard_led_state().scroll_lock) {
         rgb_matrix_set_color(14, 255, 255, 255);
     }
+	
+	// AFK lights
+	if (afk_walk) {
+		rgb_matrix_set_color(81, 255, 255, 255);
+	}
+	if (afk_jump) {
+		rgb_matrix_set_color(82, 255, 255, 255);
+	}
+	
+	if (layer_timer != false) {
+		if (timer_elapsed(layer_timer) <= layer_interval) {
+			uint8_t layer = biton32(layer_state);
+			switch (layer) {
+				case 0:
+					rgb_matrix_set_color(1, 255, 255, 255);
+					break;
+				case 1:
+					rgb_matrix_set_color(2, 255, 255, 255);
+					break;
+				case 2:
+					rgb_matrix_set_color(3, 255, 255, 255);
+					break;
+			}
+		}
+		else {
+			layer_timer = false;
+		}
+	}
 }
 
 /* Leds on the CU80 go ltr > rtl > ltr > rlt > Ltr > rtl */
